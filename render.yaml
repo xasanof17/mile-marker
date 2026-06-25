@@ -1,0 +1,28 @@
+services:
+  # REST API — Web Service (has a public URL, wakes on request)
+  - type: web
+    name: nearest-milestone-api
+    runtime: node
+    rootDir: nearest-milestone-api
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NOMINATIM_COUNTRY_CODE
+        value: us
+
+  # Telegram bot — Background Worker (never sleeps, no HTTP port needed)
+  - type: worker
+    name: nearest-milestone-bot
+    runtime: node
+    rootDir: telegram-bot
+    buildCommand: npm install --omit=dev
+    startCommand: node bot.js
+    plan: free
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false          # paste in Render dashboard
+      - key: API_URL
+        sync: false          # paste your API's Render URL, e.g. https://nearest-milestone-api.onrender.com
