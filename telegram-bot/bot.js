@@ -1,8 +1,13 @@
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
+import http from 'http';
 
 const { TELEGRAM_TOKEN, API_URL = 'http://localhost:3000' } = process.env;
 if (!TELEGRAM_TOKEN) { console.error('Missing TELEGRAM_TOKEN'); process.exit(1); }
+
+// Minimal HTTP server so Render web service health checks pass
+const PORT = process.env.PORT || 3000;
+http.createServer((_req, res) => res.end('ok')).listen(PORT);
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
