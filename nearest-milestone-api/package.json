@@ -1,0 +1,45 @@
+{
+  "name": "nearest-milestone-api",
+  "version": "1.0.0",
+  "description": "REST API that finds the nearest highway mile marker from coordinates, addresses, or Plus Codes using OpenStreetMap data",
+  "type": "module",
+  "license": "MIT",
+  "author": "",
+  "keywords": [
+    "mile marker",
+    "highway",
+    "milestone",
+    "openstreetmap",
+    "overpass",
+    "geolocation",
+    "plus-code",
+    "nominatim",
+    "rest-api",
+    "express"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xasanof17/nearest-milestone-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xasanof17/nearest-milestone-api/issues"
+  },
+  "homepage": "https://github.com/xasanof17/nearest-milestone-api#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "axios": "1.7.2",
+    "express": "4.19.2",
+    "express-rate-limit": "7.3.1",
+    "express-validator": "7.1.0",
+    "open-location-code": "1.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "3.1.3"
+  }
+}
