@@ -5,13 +5,13 @@ import milestoneRouter from './routes/milestone.routes.js';
 const app = express();
 app.use(express.json());
 
-app.get('/health', async (_req, res) => {
-  try {
-    await axios.get('https://overpass-api.de/api/status', { timeout: 4000 });
-    res.json({ status: 'ok', overpass: 'reachable' });
-  } catch {
-    res.status(503).json({ status: 'degraded', overpass: 'unreachable' });
-  }
+app.get('/health', (_req, res) => {
+  // Respond immediately so Render's health check never times out
+  res.json({ status: 'ok' });
+  // Fire-and-forget Overpass check (visible in logs only)
+  axios.get('https://overpass-api.de/api/status', { timeout: 4000 })
+    .then(() => console.log('overpass: reachable'))
+    .catch(() => console.warn('overpass: unreachable'));
 });
 app.use(milestoneRouter);
 
