@@ -1,4 +1,5 @@
 import app from './app.js';
 
-const PORT = process.env.PORT || 3000;
+const raw = process.env.PORT;
+const PORT = (raw && /^\d+$/.test(raw)) ? parseInt(raw) : 3000;
 app.listen(PORT, () => console.log(`nearest-milestone-api listening on :${PORT}`));
