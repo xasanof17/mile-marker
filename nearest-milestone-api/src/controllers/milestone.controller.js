@@ -1,3 +1,20 @@
+/**
+ * milestone.controller.js
+ *
+ * Primary path  — NTAD SQLite (US locations)
+ *   findNearest() queries data/milemarkers.db: bounding-box SQL pre-filter
+ *   then haversine sort. Returns real mile markers for all US interstates,
+ *   US routes, and state routes in all 50 states.
+ *
+ * Fallback path — Overpass OSM (non-US, or no NTAD hit within 5 km)
+ *   fetchNearby() queries OpenStreetMap for highway=milestone nodes.
+ *   OSM milestone coverage in the US is nearly zero, so this path mainly
+ *   serves international locations. When no milestones exist at all,
+ *   nearby motorway_junction exits and highway ways are returned instead.
+ *
+ * No result is returned with unknown/null route, milepost, or display_name.
+ * Items missing complete data are filtered out before the response is built.
+ */
 import { findNearest, isAvailable } from '../services/ntad.js';
 import { fetchNearby } from '../services/overpass.js';
 

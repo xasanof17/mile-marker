@@ -1,12 +1,36 @@
 /**
- * build-db.js — Generate milemarkers.db from NTAD NHS
+ * build-db.js — One-time script: NTAD NHS segments → milemarkers.db
  *
- * Fetches NTAD National Highway System segments in parallel OID batches,
- * interpolates one point per integer mile, writes to SQLite.
+ * DATA SOURCE
+ *   NTAD National Highway System (FHWA → BTS)
+ *   https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Highway_System/FeatureServer/0
+ *
+ *   Each NHS feature is a polyline road segment with:
+ *     SIGNT1 / SIGNN1  — route type + number (e.g. type "I", num "80" → "I-80")
+ *     BEGINPOINT       — milepost at the start of this segment (e.g. 157.02)
+ *     ENDPOINT         — milepost at the end   of this segment (e.g. 176.06)
+ *     geometry.paths   — ordered [lng, lat] vertices of the road centerline
+ *
+ * HOW MILEPOST POSITIONS ARE CALCULATED
+ *   For each integer mile N between BEGINPOINT and ENDPOINT:
+ *     1. Compute t = (N − BEGINPOINT) / (ENDPOINT − BEGINPOINT)
+ *        → t is the fractional distance along the segment where mile N falls (0.0 = start, 1.0 = end)
+ *     2. Walk the polyline vertex-by-vertex accumulating haversine distances
+ *        until the running total reaches (t × total_segment_length)
+ *     3. Linearly interpolate [lng, lat] between the two vertices that straddle that distance
+ *     4. Store { route, state, milepost: N, lat, lng } in SQLite
+ *
+ *   Example: segment I-80 IN, BEGINPOINT=8.1, ENDPOINT=10.9
+ *     → inserts MM 9 (t≈0.31) and MM 10 (t≈0.65) as distinct lat/lng points
+ *
+ * FETCH STRATEGY
+ *   The NHS has 492,005 features. Fetching all at once times out (~30s limit).
+ *   We split by OBJECTID range into 2461 batches of 200, fetched 10 at a time
+ *   in parallel. Each batch takes ~4s → total ~15-20 min.
  *
  * Usage:  node scripts/build-db.js
- * Output: data/milemarkers.db  (~5-10 MB)
- * Time:   ~15-20 min (10 parallel workers)
+ * Output: data/milemarkers.db  (~24 MB SQLite, ~307k rows)
+ * Time:   ~15–20 min
  */
 
 import https from 'https';
