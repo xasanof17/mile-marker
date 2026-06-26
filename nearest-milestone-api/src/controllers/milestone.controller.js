@@ -259,7 +259,7 @@ export async function getNearestMilestone(req, res, next) {
       if (results) {
         let context = { nearby_exits: [], nearby_highways: [], heading: null };
         try {
-          const elements = await fetchNearby(lat, lng, radius);
+          const elements = await fetchNearby(lat, lng, 3000);
           context = buildRoadContext(lat, lng, elements);
         } catch (err) {
           console.warn('Overpass context fetch failed for NTAD result:', err.message);
