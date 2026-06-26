@@ -48,6 +48,10 @@ if (useWebhook) {
       res.writeHead(200).end('ok');
     }
   }).listen(PORT, () => info('HTTP server listening', { port: PORT }));
+} else {
+  // Polling mode: start a minimal health server so Render doesn't kill the process
+  http.createServer((_req, res) => res.writeHead(200).end('ok'))
+    .listen(PORT, () => info('Health server listening', { port: PORT }));
 }
 
 bot.on('polling_error', err => error('Polling error', { err: err.message }));
