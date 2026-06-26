@@ -64,6 +64,123 @@ const LOCATION_KEYBOARD = {
   },
 };
 
+const COOLDOWN_MS = 3000;
+const lastRequestAt = new Map();
+const TELEGRAM_MAX_MESSAGE = 4096;
+
+function userKey(msg) {
+  return msg.from?.id ?? msg.chat?.id ?? msg.chat.id;
+}
+
+function isFlooding(msg) {
+  const key = userKey(msg);
+  if (!key) return false;
+  const last = lastRequestAt.get(key) ?? 0;
+  if (Date.now() - last < COOLDOWN_MS) return true;
+  lastRequestAt.set(key, Date.now());
+  return false;
+}
+
+function splitText(text, maxLen = TELEGRAM_MAX_MESSAGE) {
+  if (text.length <= maxLen) return [text];
+  const parts = [];
+  let buffer = '';
+
+  for (const line of text.split('\n')) {
+    if (buffer.length + line.length + 1 > maxLen) {
+      if (buffer) {
+        parts.push(buffer);
+        buffer = '';
+      }
+      if (line.length > maxLen) {
+        let chunk = '';
+        for (const word of line.split(' ')) {
+          if (chunk.length + word.length + 1 > maxLen) {
+            if (chunk) parts.push(chunk);
+            chunk = word;
+          } else {
+            chunk += (chunk ? ' ' : '') + word;
+          }
+        }
+        if (chunk) parts.push(chunk);
+      } else {
+        buffer = line;
+      }
+    } else {
+      buffer += (buffer ? '\n' : '') + line;
+    }
+  }
+
+  if (buffer) parts.push(buffer);
+  return parts;
+}
+
+async function sendText(chatId, message, opts = {}) {
+  const parts = splitText(message);
+  const [first, ...rest] = parts;
+  await bot.editMessageText(first, opts);
+  for (const part of rest) {
+    await bot.sendMessage(chatId, part, { parse_mode: 'Markdown' });
+  }
+}
+
+function formatCoordinates(current_location) {
+  if (current_location?.lat == null || current_location?.lng == null) return '';
+  return `\n*Resolved coordinates:* \`${current_location.lat.toFixed(6)},${current_location.lng.toFixed(6)}\``;
+}
+
+function formatHeading(heading) {
+  return heading ? `\n*Direction:* ${heading}` : '';
+}
+
+function formatNearby(data) {
+  const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${e.distance_m}m)`).join('\n');
+  const roads = data.nearby_highways?.map(r => {
+    const suffix = r.direction_label ? ` — ${r.direction_label}` : '';
+    return `  • ${r.display_name}${suffix}`;
+  }).join('\n');
+  let extra = '';
+  if (exits) extra += `
+
+🚗 Nearby exits:
+${exits}`;
+  if (roads) extra += `
+
+🛣 Nearby roads:
+${roads}`;
+  return extra;
+}
+
+function formatResults(data) {
+  if (!data.results?.length) {
+    let text = `⚠️ ${data.message ?? 'No mile markers found nearby.'}`;
+    text += formatCoordinates(data.current_location);
+    text += formatHeading(data.heading);
+    text += formatNearby(data);
+    return text;
+  }
+
+  let text = '';
+  const coords = data.current_location?.lat != null && data.current_location?.lng != null
+    ? `${data.current_location.lat.toFixed(6)},${data.current_location.lng.toFixed(6)}`
+    : '?,?';
+  text += `*Resolved coordinates:* \`${coords}\``;
+  text += formatHeading(data.heading);
+  text += '\n\n*Nearest mile markers:*\n';
+  text += data.results
+    .map((r, i) => {
+      const dist = r.distance_display ?? (r.distance_m != null ? `${r.distance_m}m away` : 'distance unknown');
+      const direction = r.direction_label ? ` — ${r.direction_label}` : '';
+      const coords = (r.lat != null && r.lng != null)
+        ? `\n    _Marker coords:_ \`${r.lat.toFixed(6)},${r.lng.toFixed(6)}\``
+        : '';
+      return `*${i + 1}.* ${r.display_name} *(${dist})*${direction}${coords}`;
+    })
+    .join('\n');
+  text += formatNearby(data);
+  return text;
+}
+
 async function lookup(location, chatId) {
   const params = new URLSearchParams({ limit: 3 });
   const req = () => axios.post(
@@ -78,7 +195,6 @@ async function lookup(location, chatId) {
     resp = await req();
   } catch (err) {
     const status = err.response?.status;
-    // Retry once on timeout / cold-start 502-503
     if (err.code === 'ECONNABORTED' || status === 502 || status === 503) {
       warn('API request failed, retrying', { chatId, status: status ?? err.code });
       resp = await req();
@@ -93,25 +209,17 @@ async function lookup(location, chatId) {
 
   if (!data.results?.length) {
     warn('No mile markers found', { chatId, source, ms, location: JSON.stringify(location).slice(0, 60) });
-    const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${e.distance_m}m)`).join('\n');
-    const roads = data.nearby_highways?.map(r => `  • ${r.display_name}`).join('\n');
-    let msg = `⚠️ ${data.message ?? 'No mile markers found nearby.'}`;
-    if (exits) msg += `\n\n🚗 Nearby exits:\n${exits}`;
-    if (roads) msg += `\n\n🛣 Nearby roads:\n${roads}`;
-    return msg;
+  } else {
+    info('Markers returned', {
+      chatId,
+      source,
+      ms,
+      count: data.results.length,
+      top: data.results[0]?.display_name,
+    });
   }
 
-  info('Markers returned', {
-    chatId,
-    source,
-    ms,
-    count: data.results.length,
-    top: data.results[0]?.display_name,
-  });
-
-  return data.results
-    .map((r, i) => `${i + 1}. ${r.display_name} *(${r.distance_m}m away)*`)
-    .join('\n');
+  return formatResults(data);
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -126,13 +234,19 @@ bot.onText(/\/start/, msg => {
 });
 
 bot.on('location', async msg => {
+  if (isFlooding(msg)) {
+    return bot.sendMessage(msg.chat.id, '⏳ Please wait a few seconds before sending another request.');
+  }
+
   const { latitude: lat, longitude: lng } = msg.location;
   info('Location received', { chatId: msg.chat.id, lat, lng });
   const thinking = await bot.sendMessage(msg.chat.id, '🔍 Looking up…');
   try {
     const text = await lookup({ lat, lng }, msg.chat.id);
-    await bot.editMessageText(`📍 *Results near you:*\n\n${text}`, {
-      chat_id: msg.chat.id, message_id: thinking.message_id, parse_mode: 'Markdown',
+    await sendText(msg.chat.id, `📍 *Results near you:*\n\n${text}`, {
+      chat_id: msg.chat.id,
+      message_id: thinking.message_id,
+      parse_mode: 'Markdown',
     });
   } catch (err) {
     error('Location lookup failed', { chatId: msg.chat.id, err: err.message });
@@ -144,11 +258,15 @@ bot.on('location', async msg => {
 
 bot.on('message', async msg => {
   if (!msg.text || msg.text.startsWith('/')) return;
+  if (isFlooding(msg)) {
+    return bot.sendMessage(msg.chat.id, '⏳ Please wait a few seconds before sending another request.');
+  }
+
   info('Text query', { chatId: msg.chat.id, query: msg.text.slice(0, 80) });
   const thinking = await bot.sendMessage(msg.chat.id, '🔍 Looking up…');
   try {
     const text = await lookup(msg.text, msg.chat.id);
-    await bot.editMessageText(`📍 *Results:*\n\n${text}`, {
+    await sendText(msg.chat.id, `📍 *Results:*\n\n${text}`, {
       chat_id: msg.chat.id, message_id: thinking.message_id, parse_mode: 'Markdown',
     });
   } catch (err) {

@@ -37,6 +37,125 @@ function buildDisplay(route, milepost, state) {
   return `Mile Marker ${mp} — ${route}${statePart}`;
 }
 
+function toRadians(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function toDegrees(rad) {
+  return (rad * 180) / Math.PI;
+}
+
+function bearing(lat1, lng1, lat2, lng2) {
+  const φ1 = toRadians(lat1);
+  const φ2 = toRadians(lat2);
+  const Δλ = toRadians(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDegrees(Math.atan2(y, x)) + 360) % 360;
+}
+
+function bearingLabel(deg) {
+  const labels = [
+    'Northbound',
+    'Northeastbound',
+    'Eastbound',
+    'Southeastbound',
+    'Southbound',
+    'Southwestbound',
+    'Westbound',
+    'Northwestbound',
+  ];
+  const index = Math.floor((deg + 22.5) / 45) % 8;
+  return labels[index];
+}
+
+function wayDirectionLabel(way, lat, lng) {
+  const geometry = way?.geometry;
+  if (!Array.isArray(geometry) || geometry.length < 2) return null;
+
+  let bestIndex = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < geometry.length; i++) {
+    const point = geometry[i];
+    const d = haversine(lat, lng, point.lat, point.lon);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIndex = i;
+    }
+  }
+
+  const current = geometry[bestIndex];
+  const next = bestIndex < geometry.length - 1 ? geometry[bestIndex + 1] : null;
+  const prev = bestIndex > 0 ? geometry[bestIndex - 1] : null;
+
+  if (next && prev) {
+    const distNext = haversine(lat, lng, next.lat, next.lon);
+    const distPrev = haversine(lat, lng, prev.lat, prev.lon);
+    const chosen = distNext <= distPrev ? next : prev;
+    const target = chosen === next ? next : current;
+    const source = chosen === next ? current : prev;
+    return bearingLabel(bearing(source.lat, source.lon, target.lat, target.lon));
+  }
+
+  if (next) return bearingLabel(bearing(current.lat, current.lon, next.lat, next.lon));
+  if (prev) return bearingLabel(bearing(prev.lat, prev.lon, current.lat, current.lon));
+  return null;
+}
+
+function buildRoadContext(lat, lng, elements) {
+  const junctions = elements.filter(e => e.type === 'node' && e.tags?.highway === 'motorway_junction');
+  const ways = elements.filter(e => e.type === 'way');
+
+  const sortedWays = [...ways].sort((a, b) => {
+    const ta = HIGHWAY_TIER[a.tags?.highway] ?? 9;
+    const tb = HIGHWAY_TIER[b.tags?.highway] ?? 9;
+    if (ta !== tb) return ta - tb;
+    return minWayDist(a, lat, lng) - minWayDist(b, lat, lng);
+  });
+
+  const mainWay = sortedWays.find(w => w.tags?.highway === 'motorway' || w.tags?.highway === 'trunk');
+  const mainRef = normalizeRef(mainWay?.tags?.ref);
+  const mainName = mainWay?.tags?.name;
+  const mainLabel = mainRef && mainName ? `${mainRef} (${mainName})` : mainRef ?? mainName;
+  const direction_label = mainWay ? wayDirectionLabel(mainWay, lat, lng) : null;
+
+  const seen = new Set();
+  const nearby_highways = sortedWays
+    .filter(w => {
+      const ref = normalizeRef(w.tags?.ref);
+      const name = w.tags?.name;
+      if (!ref && !name) return false;
+      const key = `${w.tags?.highway}|${ref ?? ''}|${name ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(w => ({
+      highway: w.tags.highway,
+      ref: normalizeRef(w.tags?.ref),
+      name: w.tags?.name ?? null,
+      display_name: normalizeRef(w.tags?.ref) && w.tags?.name
+        ? `${normalizeRef(w.tags.ref)} (${w.tags.name})`
+        : normalizeRef(w.tags?.ref) ?? w.tags?.name,
+      direction_label: wayDirectionLabel(w, lat, lng),
+    }));
+
+  const nearby_exits = junctions
+    .filter(j => j.tags?.ref != null)
+    .map(j => ({
+      exit: j.tags.ref,
+      name: j.tags?.name ?? null,
+      display_name: j.tags?.name ? `Exit ${j.tags.ref} — ${j.tags.name}` : `Exit ${j.tags.ref}`,
+      distance_m: Math.round(haversine(lat, lng, j.lat, j.lon)),
+      lat: j.lat,
+      lng: j.lon,
+    }))
+    .sort((a, b) => a.distance_m - b.distance_m)
+    .filter((j, _, arr) => arr.findIndex(x => x.exit === j.exit) === arr.indexOf(j));
+
+  return { nearby_highways, nearby_exits, mainLabel, direction_label };
+}
+
 // ── NTAD path ─────────────────────────────────────────────────────────────────
 
 async function ntadResults(lat, lng, limit, useKm) {
@@ -76,18 +195,9 @@ function normalizeRef(ref) {
 
 async function overpassResults(lat, lng, radius, limit, useKm) {
   const elements = await fetchNearby(lat, lng, radius);
+  const context = buildRoadContext(lat, lng, elements);
 
   const milestones = elements.filter(e => e.type === 'node' && e.tags?.highway === 'milestone');
-  const junctions  = elements.filter(e => e.type === 'node' && e.tags?.highway === 'motorway_junction');
-  const ways       = elements.filter(e => e.type === 'way');
-
-  const sortedWays = [...ways].sort((a, b) => {
-    const ta = HIGHWAY_TIER[a.tags?.highway] ?? 9;
-    const tb = HIGHWAY_TIER[b.tags?.highway] ?? 9;
-    if (ta !== tb) return ta - tb;
-    return minWayDist(a, lat, lng) - minWayDist(b, lat, lng);
-  });
-
   if (milestones.length) {
     const results = milestones
       .map(node => {
@@ -96,7 +206,10 @@ async function overpassResults(lat, lng, radius, limit, useKm) {
         const markerRaw = tags.distance ?? tags.pk ?? tags.ref;
         if (markerRaw == null) return null;
 
-        const closestWay = sortedWays[0] ?? null;
+        const closestWay = elements
+          .filter(e => e.type === 'way')
+          .sort((a, b) => minWayDist(a, lat, lng) - minWayDist(b, lat, lng))[0] ?? null;
+
         const ref = normalizeRef(tags.ref ?? closestWay?.tags?.ref);
         const name = tags.name ?? closestWay?.tags?.name;
         if (!ref && !name) return null;
@@ -104,6 +217,7 @@ async function overpassResults(lat, lng, radius, limit, useKm) {
         const mp = parseFloat(markerRaw);
         const highwayPart = ref && name ? `${ref} (${name})` : ref ?? name;
         const dist = useKm ? `${(distance_m / 1000).toFixed(2)} km` : `${distance_m} m`;
+        const direction_label = closestWay ? wayDirectionLabel(closestWay, node.lat, node.lon) : null;
 
         return {
           route: ref ?? name,
@@ -113,54 +227,17 @@ async function overpassResults(lat, lng, radius, limit, useKm) {
           distance_display: dist,
           lat: node.lat,
           lng: node.lon,
+          direction_label,
         };
       })
       .filter(Boolean)
       .sort((a, b) => a.distance_m - b.distance_m)
       .slice(0, limit);
 
-    if (results.length) return { type: 'milestones', results };
+    if (results.length) return { type: 'milestones', results, ...context };
   }
 
-  const mainWay = sortedWays.find(w => w.tags?.highway === 'motorway' || w.tags?.highway === 'trunk');
-  const mainRef = normalizeRef(mainWay?.tags?.ref);
-  const mainName = mainWay?.tags?.name;
-  const mainLabel = mainRef && mainName ? `${mainRef} (${mainName})` : mainRef ?? mainName;
-
-  const seen = new Set();
-  const nearby_highways = sortedWays
-    .filter(w => {
-      const ref = normalizeRef(w.tags?.ref);
-      const name = w.tags?.name;
-      if (!ref && !name) return false;
-      const key = `${w.tags?.highway}|${ref ?? ''}|${name ?? ''}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .map(w => ({
-      highway: w.tags.highway,
-      ref: normalizeRef(w.tags?.ref),
-      name: w.tags?.name ?? null,
-      display_name: normalizeRef(w.tags?.ref) && w.tags?.name
-        ? `${normalizeRef(w.tags.ref)} (${w.tags.name})`
-        : normalizeRef(w.tags?.ref) ?? w.tags?.name,
-    }));
-
-  const nearby_exits = junctions
-    .filter(j => j.tags?.ref != null)
-    .map(j => ({
-      exit: j.tags.ref,
-      name: j.tags?.name ?? null,
-      display_name: j.tags?.name ? `Exit ${j.tags.ref} — ${j.tags.name}` : `Exit ${j.tags.ref}`,
-      distance_m: Math.round(haversine(lat, lng, j.lat, j.lon)),
-      lat: j.lat,
-      lng: j.lon,
-    }))
-    .sort((a, b) => a.distance_m - b.distance_m)
-    .filter((j, _, arr) => arr.findIndex(x => x.exit === j.exit) === arr.indexOf(j));
-
-  return { type: 'fallback', nearby_highways, nearby_exits, mainLabel };
+  return { type: 'fallback', ...context };
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -176,10 +253,22 @@ export async function getNearestMilestone(req, res, next) {
     try {
       const results = await ntadResults(lat, lng, limit, useKm);
       if (results) {
+        let context = { nearby_exits: [], nearby_highways: [], heading: null };
+        try {
+          const elements = await fetchNearby(lat, lng, radius);
+          context = buildRoadContext(lat, lng, elements);
+        } catch (err) {
+          console.warn('Overpass context fetch failed for NTAD result:', err.message);
+        }
+
         return res.json({
           results,
           source: 'ntad',
           precision: { source_type, precision_tier, radius_m: 5000 },
+          current_location: { lat, lng },
+          heading: context.direction_label,
+          nearby_exits: context.nearby_exits,
+          nearby_highways: context.nearby_highways,
         });
       }
     } catch (err) {
@@ -200,17 +289,25 @@ export async function getNearestMilestone(req, res, next) {
       results: overpass.results,
       source: 'osm',
       precision: { source_type, precision_tier, radius_m: radius },
+      current_location: { lat, lng },
+      heading: overpass.direction_label,
+      nearby_exits: overpass.nearby_exits,
+      nearby_highways: overpass.nearby_highways,
     });
   }
 
-  const { nearby_exits, nearby_highways, mainLabel } = overpass;
+  const { nearby_exits, nearby_highways, mainLabel, direction_label } = overpass;
 
   if (!nearby_exits.length && !nearby_highways.length) {
     return res.json({
       results: [],
       source: 'none',
       precision: { source_type, precision_tier, radius_m: radius },
+      current_location: { lat, lng },
+      heading: direction_label,
       message: 'No highway infrastructure found near this location.',
+      nearby_exits,
+      nearby_highways,
     });
   }
 
@@ -218,10 +315,12 @@ export async function getNearestMilestone(req, res, next) {
     results: [],
     source: 'none',
     precision: { source_type, precision_tier, radius_m: radius },
+    current_location: { lat, lng },
+    heading: direction_label,
     message: mainLabel
       ? `No mile markers found on ${mainLabel} near this location.`
       : 'No mile markers found near this location.',
-    ...(nearby_exits.length  && { nearby_exits }),
-    ...(nearby_highways.length && { nearby_highways }),
+    nearby_exits,
+    nearby_highways,
   });
 }
