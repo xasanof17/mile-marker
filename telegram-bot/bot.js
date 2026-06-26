@@ -5,20 +5,39 @@ import http from 'http';
 const { TELEGRAM_TOKEN, API_URL = 'http://localhost:3000', RENDER_EXTERNAL_URL } = process.env;
 if (!TELEGRAM_TOKEN) { console.error('Missing TELEGRAM_TOKEN'); process.exit(1); }
 
-const PORT = process.env.PORT || 3000;
-
-// Use webhook when deployed on Render (RENDER_EXTERNAL_URL is auto-injected)
+const PORT = parseInt(process.env.PORT) || 3000;
 const useWebhook = !!RENDER_EXTERNAL_URL;
-const webhookUrl = useWebhook ? `${RENDER_EXTERNAL_URL}/bot${TELEGRAM_TOKEN}` : null;
+const WEBHOOK_PATH = `/webhook`;
+const webhookUrl = useWebhook ? `${RENDER_EXTERNAL_URL}${WEBHOOK_PATH}` : null;
 
-console.log(`Starting bot… API_URL=${API_URL} mode=${useWebhook ? 'webhook' : 'polling'}`);
+console.log(`Starting bot… API_URL=${API_URL} mode=${useWebhook ? 'webhook' : 'polling'} PORT=${PORT}`);
 
-let bot;
+// In webhook mode: no polling, we feed updates manually via processUpdate()
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: !useWebhook });
+
 if (useWebhook) {
-  bot = new TelegramBot(TELEGRAM_TOKEN, { webHook: { port: PORT } });
-  bot.setWebHook(webhookUrl).then(() => console.log(`Webhook set: ${webhookUrl}`));
-} else {
-  bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+  // Register the webhook with Telegram
+  bot.setWebHook(webhookUrl)
+    .then(() => console.log(`Webhook registered: ${webhookUrl}`))
+    .catch(err => console.error('setWebHook failed:', err.message));
+
+  // Minimal HTTP server — receives Telegram POST updates
+  http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === WEBHOOK_PATH) {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          bot.processUpdate(JSON.parse(body));
+        } catch (e) {
+          console.error('processUpdate error:', e.message);
+        }
+        res.writeHead(200).end('ok');
+      });
+    } else {
+      res.writeHead(200).end('ok');
+    }
+  }).listen(PORT, () => console.log(`HTTP server listening on ${PORT}`));
 }
 
 bot.on('polling_error', (err) => console.error('Polling error:', err.message));
