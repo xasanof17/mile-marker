@@ -2,11 +2,11 @@ import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import http from 'http';
 
-const { TELEGRAM_TOKEN, API_URL = 'http://localhost:3000', RENDER_EXTERNAL_URL } = process.env;
+const { TELEGRAM_TOKEN, API_URL = 'http://localhost:3000', RENDER_EXTERNAL_URL, USE_WEBHOOK } = process.env;
 if (!TELEGRAM_TOKEN) { console.error('[FATAL] Missing TELEGRAM_TOKEN'); process.exit(1); }
 
 const PORT = parseInt(process.env.PORT) || 3000;
-const useWebhook = !!RENDER_EXTERNAL_URL;
+const useWebhook = USE_WEBHOOK === 'true';
 const webhookUrl = useWebhook ? `${RENDER_EXTERNAL_URL}/webhook` : null;
 
 // ── Structured logger ─────────────────────────────────────────────────────────
