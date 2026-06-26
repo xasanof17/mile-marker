@@ -23,7 +23,8 @@ if (useWebhook) {
 
   // Minimal HTTP server — receives Telegram POST updates
   http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === WEBHOOK_PATH) {
+    console.log(`${req.method} ${req.url}`);
+    if (req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {
