@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+# NTAD raw download artifacts (not needed after build-db runs)
+data/ntad_raw/
+data/ntad_mileposts.zip

@@ -55,11 +55,23 @@ const LOCATION_KEYBOARD = {
 
 async function lookup(location, opts = {}) {
   const params = new URLSearchParams({ limit: 3, ...opts });
-  const { data } = await axios.post(
+  const req = () => axios.post(
     `${API_URL}/nearest-milestone?${params}`,
     { location },
-    { timeout: 15000 },
+    { timeout: 35000 },
   );
+  let resp;
+  try {
+    resp = await req();
+  } catch (err) {
+    const status = err.response?.status;
+    if (err.code === 'ECONNABORTED' || status === 502 || status === 503) {
+      resp = await req(); // one retry
+    } else {
+      throw err;
+    }
+  }
+  const { data } = resp;
 
   if (!data.results?.length) {
     const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${e.distance_m}m)`).join('\n');
