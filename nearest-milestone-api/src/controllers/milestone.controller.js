@@ -164,7 +164,9 @@ async function ntadResults(lat, lng, limit, useKm) {
 
   return markers.map(m => {
     const mp = parseFloat(m.milepost.toFixed(1));
-    const dist = useKm ? `${(m.distance_m / 1000).toFixed(2)} km` : `${m.distance_m} m`;
+    const dist = useKm
+      ? `${(m.distance_m / 1000).toFixed(2)} km`
+      : `${(m.distance_m / 1609.344).toFixed(2)} mi`;
     return {
       route: m.route,
       state: m.state,
@@ -216,7 +218,9 @@ async function overpassResults(lat, lng, radius, limit, useKm) {
 
         const mp = parseFloat(markerRaw);
         const highwayPart = ref && name ? `${ref} (${name})` : ref ?? name;
-        const dist = useKm ? `${(distance_m / 1000).toFixed(2)} km` : `${distance_m} m`;
+        const dist = useKm
+          ? `${(distance_m / 1000).toFixed(2)} km`
+          : `${(distance_m / 1609.344).toFixed(2)} mi`;
         const direction_label = closestWay ? wayDirectionLabel(closestWay, node.lat, node.lon) : null;
 
         return {

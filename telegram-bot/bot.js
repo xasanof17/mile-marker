@@ -134,7 +134,7 @@ function formatHeading(heading) {
 }
 
 function formatNearby(data) {
-  const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${e.distance_m}m)`).join('\n');
+  const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${(e.distance_m / 1609.344).toFixed(2)} mi)`).join('\n');
   const roads = data.nearby_highways?.map(r => {
     const suffix = r.direction_label ? ` — ${r.direction_label}` : '';
     return `  • ${r.display_name}${suffix}`;
@@ -169,7 +169,7 @@ function formatResults(data) {
   text += '\n\n*Nearest mile markers:*\n';
   text += data.results
     .map((r, i) => {
-      const dist = r.distance_display ?? (r.distance_m != null ? `${r.distance_m}m away` : 'distance unknown');
+      const dist = r.distance_display ?? (r.distance_m != null ? `${(r.distance_m / 1609.344).toFixed(2)} mi` : 'distance unknown');
       const direction = r.direction_label ? ` — ${r.direction_label}` : '';
       const coords = (r.lat != null && r.lng != null)
         ? `\n    _Marker coords:_ \`${r.lat.toFixed(6)},${r.lng.toFixed(6)}\``
