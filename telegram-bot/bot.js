@@ -181,6 +181,17 @@ function formatResults(data) {
   return text;
 }
 
+// ── Keep-alive pinger (prevents Render free-tier spin-down) ──────────────────
+const PING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+setInterval(async () => {
+  try {
+    await axios.get(`${API_URL}/health`, { timeout: 10000 });
+    info('Keep-alive ping OK');
+  } catch (err) {
+    warn('Keep-alive ping failed', { err: err.message });
+  }
+}, PING_INTERVAL_MS);
+
 async function lookup(location, chatId) {
   const params = new URLSearchParams({ limit: 3 });
   const req = () => axios.post(
@@ -189,6 +200,8 @@ async function lookup(location, chatId) {
     { timeout: 35000 },
   );
 
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
   const t0 = Date.now();
   let resp;
   try {
@@ -196,7 +209,8 @@ async function lookup(location, chatId) {
   } catch (err) {
     const status = err.response?.status;
     if (err.code === 'ECONNABORTED' || status === 502 || status === 503) {
-      warn('API request failed, retrying', { chatId, status: status ?? err.code });
+      warn('API request failed, retrying after delay', { chatId, status: status ?? err.code });
+      await sleep(8000); // wait for cold-start to finish
       resp = await req();
     } else {
       throw err;
