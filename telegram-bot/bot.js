@@ -134,11 +134,14 @@ function formatHeading(heading) {
 }
 
 function formatNearby(data) {
-  const exits = data.nearby_exits?.map(e => `  • ${e.display_name} (${(e.distance_m / 1609.344).toFixed(2)} mi)`).join('\n');
-  const roads = data.nearby_highways?.map(r => {
-    const suffix = r.direction_label ? ` — ${r.direction_label}` : '';
-    return `  • ${r.display_name}${suffix}`;
-  }).join('\n');
+  const exits = data.nearby_exits?.slice(0, 3).map(e => `  • ${e.display_name} (${(e.distance_m / 1609.344).toFixed(2)} mi)`).join('\n');
+  const roads = data.nearby_highways
+    ?.filter(r => r.highway === 'motorway' || r.highway === 'trunk')
+    .slice(0, 5)
+    .map(r => {
+      const suffix = r.direction_label ? ` — ${r.direction_label}` : '';
+      return `  • ${r.display_name}${suffix}`;
+    }).join('\n');
   let extra = '';
   if (exits) extra += `
 
