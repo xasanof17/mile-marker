@@ -170,7 +170,7 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
       "milepost": 9,
       "display_name": "Mile Marker 9 — I-80 (IN)",
       "distance_m": 241,
-      "distance_display": "241 m",
+      "distance_display": "0.15 mi",
       "lat": 41.57514,
       "lng": -87.05832
     },
@@ -180,7 +180,7 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
       "milepost": 22,
       "display_name": "Mile Marker 22 — SR-49 (IN)",
       "distance_m": 1052,
-      "distance_display": "1052 m",
+      "distance_display": "0.65 mi",
       "lat": 41.57955,
       "lng": -87.04499
     }
@@ -200,8 +200,8 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
 | `state` | Two-letter state code |
 | `milepost` | Integer mile marker number |
 | `display_name` | Ready-to-print string for Telegram/UI |
-| `distance_m` | Straight-line distance in metres from your input |
-| `source` | `ntad` (local SQLite) or `osm` (Overpass fallback for non-US) |
+| `distance_m` | Straight-line distance in metres from your input (raw, used for sorting) |
+| `distance_display` | Human-readable distance (`0.15 mi`, or km if `?units=km`) |
 
 ---
 
@@ -214,6 +214,8 @@ When outside the US or on a road not in the NHS, the OSM Overpass fallback runs.
   "results": [],
   "source": "none",
   "message": "No mile markers found on I-80/I-90 (Indiana Toll Road) near this location.",
+  "current_location": { "lat": 41.5744, "lng": -87.0556 },
+  "heading": "Eastbound",
   "nearby_exits": [
     {
       "exit": "31",
@@ -227,7 +229,8 @@ When outside the US or on a road not in the NHS, the OSM Overpass fallback runs.
     {
       "highway": "motorway",
       "ref": "I-80/I-90",
-      "display_name": "I-80/I-90 (Indiana Toll Road)"
+      "display_name": "I-80/I-90 (Indiana Toll Road)",
+      "direction_label": "Eastbound"
     }
   ]
 }
