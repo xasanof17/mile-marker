@@ -35,17 +35,13 @@ npm start
 |---|---|---|
 | `TELEGRAM_TOKEN` | ✅ | BotFather token |
 | `API_URL` | ✅ | Base URL of nearest-milestone-api (e.g. `http://localhost:3000`) |
-| `RENDER_EXTERNAL_URL` | No | Set automatically by Render — enables webhook mode |
-| `PORT` | No | HTTP port (default `3000`; Render injects this) |
+| `USE_WEBHOOK` | No | Set to `true` to enable webhook mode (requires `RENDER_EXTERNAL_URL` to also be set) |
+| `PORT` | No | HTTP port (default `3000`; only used in webhook mode) |
 
-When `RENDER_EXTERNAL_URL` is set the bot registers a Telegram webhook and runs an HTTP server to receive updates. Without it, polling mode is used (local dev).
+By default the bot runs in **polling mode** (no HTTP server needed). Set `USE_WEBHOOK=true` only if you need webhook mode.
 
 ---
 
 ## Deploy
 
-The bot is configured as a Render **web service** in `../render.yaml`. Set `TELEGRAM_TOKEN` and `API_URL` in the Render dashboard environment variables.
-
-```
-Render service type: web service (not worker) — required so Telegram can reach the webhook endpoint
-```
+The bot is configured as a Render **web service** in `../render.yaml`. Set `TELEGRAM_TOKEN` and `API_URL` in the Render dashboard. The bot runs in polling mode by default, pinging the API every 10 minutes to keep it warm.
