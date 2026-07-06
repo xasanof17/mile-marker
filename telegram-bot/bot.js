@@ -130,7 +130,15 @@ async function sendText(chatId, message, opts = {}) {
 
 function formatCoordinates(current_location) {
   if (current_location?.lat == null || current_location?.lng == null) return '';
-  return `\n*Resolved coordinates:* \`${current_location.lat.toFixed(6)},${current_location.lng.toFixed(6)}\``;
+  const { lat, lng } = current_location;
+  const latDir = lat >= 0 ? 'N' : 'S';
+  const lngDir = lng >= 0 ? 'E' : 'W';
+  const mapsUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+  return (
+    `\n*Resolved coordinates:* \`${lat.toFixed(6)},${lng.toFixed(6)}\`` +
+    `\n*Position:* ${Math.abs(lat).toFixed(4)}° ${latDir}, ${Math.abs(lng).toFixed(4)}° ${lngDir}` +
+    `\n*Map:* [Open in Google Maps](${mapsUrl})`
+  );
 }
 
 function formatHeading(heading) {
@@ -168,10 +176,7 @@ function formatResults(data) {
   }
 
   let text = '';
-  const coords = data.current_location?.lat != null && data.current_location?.lng != null
-    ? `${data.current_location.lat.toFixed(6)},${data.current_location.lng.toFixed(6)}`
-    : '?,?';
-  text += `*Resolved coordinates:* \`${coords}\``;
+  text += formatCoordinates(data.current_location);
   text += formatHeading(data.heading);
   text += '\n\n*Nearest mile markers:*\n';
   text += data.results
