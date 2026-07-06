@@ -29,6 +29,7 @@ app.use((err, _req, res, _next) => {
     GEOCODER_ERROR: 422,
     INVALID_COORDS: 422,
     OVERPASS_TIMEOUT: 503,
+    OVERPASS_ERROR: 503,
     PLUS_CODE_ERROR: 422,
   }[err.code] ?? 500;
 

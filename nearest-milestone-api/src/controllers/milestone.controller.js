@@ -285,6 +285,20 @@ export async function getNearestMilestone(req, res, next) {
   try {
     overpass = await overpassResults(lat, lng, radius, limit, useKm);
   } catch (err) {
+    // If Overpass is unreachable and NTAD already found nothing, return a graceful no-results
+    if (err.code === 'OVERPASS_TIMEOUT' || err.code === 'OVERPASS_ERROR') {
+      console.warn('Overpass unavailable for fallback path:', err.message);
+      return res.json({
+        results: [],
+        source: 'none',
+        precision: { source_type, precision_tier, radius_m: radius },
+        current_location: { lat, lng },
+        heading: null,
+        message: 'No mile markers found near this location (road context service temporarily unavailable).',
+        nearby_exits: [],
+        nearby_highways: [],
+      });
+    }
     return next(err);
   }
 
