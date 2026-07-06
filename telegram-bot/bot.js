@@ -131,14 +131,7 @@ async function sendText(chatId, message, opts = {}) {
 function formatCoordinates(current_location) {
   if (current_location?.lat == null || current_location?.lng == null) return '';
   const { lat, lng } = current_location;
-  const latDir = lat >= 0 ? 'N' : 'S';
-  const lngDir = lng >= 0 ? 'E' : 'W';
-  const mapsUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
-  return (
-    `\n*Resolved coordinates:* \`${lat.toFixed(6)},${lng.toFixed(6)}\`` +
-    `\n*Position:* ${Math.abs(lat).toFixed(4)}° ${latDir}, ${Math.abs(lng).toFixed(4)}° ${lngDir}` +
-    `\n*Map:* [Open in Google Maps](${mapsUrl})`
-  );
+  return `\n*Resolved coordinates:* \`${lat.toFixed(6)},${lng.toFixed(6)}\``;
 }
 
 function formatHeading(heading) {
@@ -168,9 +161,10 @@ ${roads}`;
 
 function formatResults(data) {
   if (!data.results?.length) {
-    let text = `⚠️ ${data.message ?? 'No mile markers found nearby.'}`;
+    let text = '';
     text += formatCoordinates(data.current_location);
     text += formatHeading(data.heading);
+    text += `\n\n⚠️ *${data.message ?? 'No mile markers found nearby.'}*`;
     text += formatNearby(data);
     return text;
   }
