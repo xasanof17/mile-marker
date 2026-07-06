@@ -24,4 +24,4 @@ services:
       - key: TELEGRAM_TOKEN
         sync: false          # paste in Render dashboard
       - key: API_URL
-        sync: false          # paste your API's Render URL, e.g. https://nearest-milestone-api.onrender.com
+        value: https://nearest-milestone-api.onrender.com
