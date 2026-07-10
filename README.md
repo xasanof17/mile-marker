@@ -11,7 +11,7 @@ A monorepo with two services that together let you find the nearest highway mile
 
 ## How It Works
 
-Mile marker data comes from the **NTAD National Highway System** (Federal Highway Administration via BTS) — 307,600 interpolated milepost positions across all US interstates, US routes, and state routes in all 50 states, stored in a local SQLite database. For non-US locations the API falls back to OpenStreetMap Overpass.
+Mile marker data comes from the **NTAD National Highway System** (Federal Highway Administration via BTS) — 202,701 interpolated milepost positions across all US interstates, US routes, and state routes in all 50 states + Puerto Rico, stored in a local SQLite database (18.1 MB). For non-US locations the API falls back to OpenStreetMap Overpass.
 
 The Telegram bot runs in polling mode as a background worker (never sleeps) and pings the API every 10 minutes to keep it warm. The API is a standard web service behind rate limiting.
 

@@ -201,29 +201,42 @@ function chainSegments(segs) {
     [terminusItem.startPt, terminusItem.endPt] = [terminusItem.endPt, terminusItem.startPt];
   }
 
-  // Greedy chain
-  const visited = new Set();
+  // Greedy chain with backtrack penalty.
+  // Segments that would move in the wrong primary direction are penalised,
+  // preventing the chain from jumping to parallel alignments that run alongside.
+  const BACKTRACK_THRESHOLD = 0.02; // ~2km in degrees
+  const BACKTRACK_PENALTY   = 1e8;  // effectively infinite
+
+  const visited = new Set([terminusItem]);
   const chain   = [terminusItem];
-  visited.add(terminusItem);
 
   while (visited.size < items.length) {
-    const last = chain[chain.length - 1];
+    const last   = chain[chain.length - 1];
     const cursor = last.endPt;
 
-    // Find nearest unvisited segment (by start or end pt)
     let bestItem  = null;
-    let bestDist  = Infinity;
+    let bestScore = Infinity;
     let bestFlip  = false;
 
     for (const it of items) {
       if (visited.has(it)) continue;
-      const dStart = dist(cursor, it.startPt);
-      const dEnd   = dist(cursor, it.endPt);
-      if (dStart < bestDist) { bestDist = dStart; bestItem = it; bestFlip = false; }
-      if (dEnd   < bestDist) { bestDist = dEnd;   bestItem = it; bestFlip = true;  }
+      for (const [flip, attachPt, farPt] of [
+        [false, it.startPt, it.endPt],
+        [true,  it.endPt,   it.startPt],
+      ]) {
+        const d        = dist(cursor, attachPt);
+        const progress = isEW ? farPt[0] - attachPt[0] : farPt[1] - attachPt[1];
+        const penalty  = progress < -BACKTRACK_THRESHOLD ? BACKTRACK_PENALTY : 0;
+        const score    = d + penalty;
+        if (score < bestScore) {
+          bestScore = score;
+          bestItem  = it;
+          bestFlip  = flip;
+        }
+      }
     }
 
-    if (!bestItem) break; // disconnected remainder — shouldn't happen on clean data
+    if (!bestItem) break;
 
     if (bestFlip) {
       bestItem.vertices = [...bestItem.vertices].reverse();
@@ -249,20 +262,13 @@ function chainSegments(segs) {
 
 function milesFromSegment(seg, route, state, lname) {
   const rows = [];
-  // Statewide milepost at each local point within this segment:
-  //   statewideMP = cumOffset + (localBEGIN + localSpan * t)
-  // We want integer values, so:
-  //   intMP = Math.ceil(segStartStatewise) to Math.floor(segEndStatewise)
-  const segStartSW = seg.cumOffset + seg.begin; // statewide MP at segment start
-  const segEndSW   = seg.cumOffset + seg.end;   // statewide MP at segment end
-  const localSpan  = seg.end - seg.begin;
-  const swSpan     = segEndSW - segStartSW;
-
-  if (swSpan <= 0) return rows;
+  // Statewide milepost = cumOffset (physical miles from terminus) + fraction within segment
+  // cumOffset accumulates seg.miles (the NTAD MILES field = physical segment length)
+  const segStartSW = seg.cumOffset;
+  const segEndSW   = seg.cumOffset + seg.miles;
 
   for (let mp = Math.ceil(segStartSW); mp <= Math.floor(segEndSW); mp++) {
-    // t is fraction along this segment where integer MP falls
-    const t = (mp - segStartSW) / swSpan;
+    const t = seg.miles > 0 ? (mp - segStartSW) / seg.miles : 0;
     const [lng, lat] = interpolate(seg.vertices, t);
     rows.push([route, state, mp, parseFloat(lat.toFixed(6)), parseFloat(lng.toFixed(6)), lname ?? '']);
   }
@@ -286,13 +292,13 @@ async function fetchAllMeta(maxOID) {
       let page;
       try {
         const url = `${NHS_URL}/query?where=OBJECTID+BETWEEN+${start}+AND+${end}` +
-          `&outFields=OBJECTID,STFIPS,SIGNT1,SIGNN1,LNAME,BEGINPOINT,ENDPOINT,MILES` +
+          `&outFields=OBJECTID,STFIPS,SIGNT1,SIGNN1,LNAME,ROUTEID,BEGINPOINT,ENDPOINT,MILES` +
           `&returnGeometry=false&f=json`;
         page = await get(url);
       } catch (e) {
         try {
           const url = `${NHS_URL}/query?where=OBJECTID+BETWEEN+${start}+AND+${end}` +
-            `&outFields=OBJECTID,STFIPS,SIGNT1,SIGNN1,LNAME,BEGINPOINT,ENDPOINT,MILES` +
+            `&outFields=OBJECTID,STFIPS,SIGNT1,SIGNN1,LNAME,ROUTEID,BEGINPOINT,ENDPOINT,MILES` +
             `&returnGeometry=false&f=json`;
           page = await get(url);
         } catch { page = { features: [] }; }
@@ -309,10 +315,11 @@ async function fetchAllMeta(maxOID) {
         // Keep first non-empty LNAME for this route
         if (!entry.lname && a.LNAME && a.LNAME.trim()) entry.lname = a.LNAME.trim();
         entry.segs.push({
-          oid:   a.OBJECTID,
-          begin: a.BEGINPOINT ?? 0,
-          end:   a.ENDPOINT   ?? 0,
-          miles: a.MILES      ?? 0,
+          oid:     a.OBJECTID,
+          begin:   a.BEGINPOINT ?? 0,
+          end:     a.ENDPOINT   ?? 0,
+          miles:   a.MILES      ?? 0,
+          routeId: a.ROUTEID    ?? '',
         });
       }
       done++;
@@ -332,10 +339,16 @@ async function fetchAllMeta(maxOID) {
 
 async function fetchGeomBatch(oids) {
   const url = `${NHS_URL}/query?objectIds=${oids.join(',')}` +
-    `&outFields=OBJECTID,BEGINPOINT,ENDPOINT,MILES` +
+    `&outFields=OBJECTID,ROUTEID,BEGINPOINT,ENDPOINT,MILES` +
     `&returnGeometry=true&outSR=4326&f=json`;
   const page = await get(url);
   return page.features ?? [];
+}
+
+function routeIdFamily(routeId) {
+  if (!routeId) return '';
+  // Remove the trailing " - NNNNN" suffix
+  return routeId.replace(/\s*-\s*\d+\s*$/, '').trim();
 }
 
 async function processRoute(entry) {
@@ -359,29 +372,35 @@ async function processRoute(entry) {
   // Build a map from OID to meta (begin/end/miles) using phase-1 data
   const metaByOid = new Map(segs.map(s => [s.oid, s]));
 
-  // Merge geometry
-  const segObjects = [];
+  // Merge geometry and group by ROUTEID family (distinct alignment)
+  const familyMap = new Map(); // family → segObjects[]
+
   for (const f of geomFeatures) {
     const oid  = f.attributes.OBJECTID;
     const meta = metaByOid.get(oid);
     if (!meta) continue;
     const paths = f.geometry?.paths ?? [];
     if (!paths.length) continue;
-    const vertices = paths.flat(); // flatten [[lng,lat],[lng,lat],...] from nested paths
+    const vertices = paths.flat();
     if (vertices.length < 2) continue;
-    const begin = f.attributes.BEGINPOINT ?? meta.begin;
-    const end   = f.attributes.ENDPOINT   ?? meta.end;
-    const miles = f.attributes.MILES      ?? meta.miles;
+    const begin   = f.attributes.BEGINPOINT ?? meta.begin;
+    const end     = f.attributes.ENDPOINT   ?? meta.end;
+    const miles   = f.attributes.MILES      ?? meta.miles;
+    const routeId = f.attributes.ROUTEID    ?? meta.routeId ?? '';
     if ((end - begin) <= 0 || miles <= 0) continue;
-    segObjects.push({ oid, begin, end, miles, vertices });
+
+    const family = routeIdFamily(routeId);
+    if (!familyMap.has(family)) familyMap.set(family, []);
+    familyMap.get(family).push({ oid, begin, end, miles, vertices });
   }
 
-  if (!segObjects.length) return [];
+  if (!familyMap.size) return [];
 
-  // Chain segments geographically and compute cumulative offsets
-  const chained = chainSegments(segObjects);
+  // Pass ALL segments to a single chain call.
+  // The backtrack-penalty in chainSegments prevents jumping to parallel alignments.
+  const allSegObjs = [...familyMap.values()].flat();
+  const chained = chainSegments(allSegObjs);
 
-  // Generate integer milepost rows
   const rows = [];
   for (const seg of chained) {
     rows.push(...milesFromSegment(seg, route, state, lname));

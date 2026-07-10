@@ -34,7 +34,7 @@ The API does not look up pre-placed pins. It **interpolates** milepost positions
 | Territories (PR) | ✅ Included |
 | Non-US locations | Overpass OSM fallback |
 
-**293,000+ mile markers** across 5,200+ route+state combinations. Database: ~26 MB SQLite, loaded into memory at startup.
+**202,701 mile markers** across 5,143 route+state combinations. Database: 18.1 MB SQLite, loaded into memory at startup.
 
 ---
 
@@ -295,7 +295,7 @@ milestone.controller
 ```
 nearest-milestone-api/
 ├── data/
-│   └── milemarkers.db          # 293k+ mile markers, all US states (~26 MB)
+│   └── milemarkers.db          # 202,701 mile markers, all US states (18.1 MB)
 ├── scripts/
 │   └── build-db.js             # One-time: NTAD NHS → SQLite (chain-stitch algorithm)
 ├── src/
