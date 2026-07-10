@@ -82,7 +82,7 @@ export async function findNearest(lat, lng, limit = 5, maxDistM = 5000) {
   const padLng = maxDistM / (111000 * Math.cos((lat * Math.PI) / 180));
 
   const stmt = db.prepare(`
-    SELECT route, state, milepost, lat, lng
+    SELECT route, state, milepost, lat, lng, name
     FROM mileposts
     WHERE lat BETWEEN $latMin AND $latMax
       AND lng BETWEEN $lngMin AND $lngMax

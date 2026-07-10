@@ -31,10 +31,11 @@ function haversine(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function buildDisplay(route, milepost, state) {
+function buildDisplay(route, milepost, state, name) {
   const mp = Number.isInteger(milepost) ? milepost : parseFloat(milepost.toFixed(1));
   const statePart = state ? ` (${state})` : '';
-  return `Mile Marker ${mp} — ${route}${statePart}`;
+  const namePart = name ? ` / ${name}` : '';
+  return `Mile Marker ${mp} — ${route}${statePart}${namePart}`;
 }
 
 function toRadians(deg) {
@@ -171,7 +172,8 @@ async function ntadResults(lat, lng, limit, useKm) {
       route: m.route,
       state: m.state,
       milepost: mp,
-      display_name: buildDisplay(m.route, mp, m.state),
+      name: m.name || null,
+      display_name: buildDisplay(m.route, mp, m.state, m.name || null),
       distance_m: m.distance_m,
       distance_display: dist,
       lat: m.lat,

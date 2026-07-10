@@ -8,17 +8,19 @@ Mile marker data comes from the **NTAD National Highway System** (Federal Highwa
 
 ## How Mile Markers Are Calculated
 
-The API does not look up pre-placed pins. It **interpolates** milepost positions from the NTAD NHS road geometry:
+The API does not look up pre-placed pins. It **interpolates** milepost positions from the NTAD NHS road geometry using a two-phase geographic chain-stitching approach:
 
-1. **Source:** The NTAD NHS dataset (FHWA → BTS) stores every highway segment as a polyline with `BEGINPOINT` and `ENDPOINT` milepost values (e.g. MM 157.02 → MM 176.06).
+1. **Source:** The NTAD NHS dataset stores each highway as hundreds of short polyline segments, each with a local `BEGINPOINT`/`ENDPOINT` and a `MILES` field (physical segment length). The `BEGINPOINT` values are *segment-local* — they restart near 0 for each internal route section and cannot be used directly as mile marker numbers.
 
-2. **Interpolation:** For each integer mile within a segment's range, the build script walks the polyline vertex-by-vertex using the haversine formula to accumulate distance, then places a point at the exact fractional position where that mile falls on the road geometry.
+2. **Chain-stitching:** For each route+state combination, all segments are fetched with geometry. The build script identifies the geographic terminus (westernmost point for E-W routes, southernmost for N-S routes), then greedily chains segments together by nearest endpoint, accumulating `MILES` to compute a true statewide cumulative milepost offset for each segment.
 
-3. **Result:** Each record in the database is `{ route, state, milepost, lat, lng }` — the precise coordinate on the road centerline where that mile marker sign would stand.
+3. **Interpolation:** Within each segment, for every integer statewide milepost that falls in its range, the script walks the polyline vertex-by-vertex using the haversine formula and places a point at the exact fractional position on the road centerline.
 
-4. **Lookup:** At query time, a bounding-box pre-filter narrows candidates, then haversine sorts by actual distance from your location. The nearest N markers are returned.
+4. **Result:** Each record in the database is `{ route, state, milepost, lat, lng, name }` — the precise coordinate where that mile marker sign stands, with the correct statewide number (plus the named highway where available, e.g. "Pennsylvania Tpke").
 
-**Example:** `41.5744, -87.0556` (I-80 near Gary, IN) → `Mile Marker 9 — I-80 (IN)` at 241 m.
+5. **Lookup:** At query time, a bounding-box SQL pre-filter narrows candidates, then haversine sorts by actual distance from your location. The nearest N markers are returned.
+
+**Example:** `40.00572, -78.68660` (I-76 near Breezewood, PA) → `Mile Marker 135 — I-76 (PA) / Pennsylvania Tpke` at 0.20 mi.
 
 ---
 
@@ -32,7 +34,7 @@ The API does not look up pre-placed pins. It **interpolates** milepost positions
 | Territories (PR) | ✅ Included |
 | Non-US locations | Overpass OSM fallback |
 
-**307,600 mile markers** across 492,000 NHS road segments. Database: ~24 MB SQLite, loaded into memory at startup.
+**293,000+ mile markers** across 5,200+ route+state combinations. Database: ~26 MB SQLite, loaded into memory at startup.
 
 ---
 
@@ -63,7 +65,7 @@ The `data/milemarkers.db` file is included and ready to use. To regenerate from 
 npm run build-db
 ```
 
-This downloads ~492k NHS segments from the BTS ArcGIS REST service using 10 parallel workers and interpolates all integer milepost positions. Takes ~15–20 minutes.
+This downloads ~492k NHS segments from the BTS ArcGIS REST service, chain-stitches segments geographically per route to produce accurate statewide mileposts, then interpolates all integer milepost positions. Takes ~20–30 minutes.
 
 ---
 
@@ -168,6 +170,7 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
       "route": "I-80",
       "state": "IN",
       "milepost": 9,
+      "name": null,
       "display_name": "Mile Marker 9 — I-80 (IN)",
       "distance_m": 241,
       "distance_display": "0.15 mi",
@@ -178,6 +181,7 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
       "route": "SR-49",
       "state": "IN",
       "milepost": 22,
+      "name": null,
       "display_name": "Mile Marker 22 — SR-49 (IN)",
       "distance_m": 1052,
       "distance_display": "0.65 mi",
@@ -198,7 +202,8 @@ curl -X POST https://nearest-milestone-api.onrender.com/nearest-milestone \
 |---|---|
 | `route` | Highway route label (`I-80`, `US-30`, `SR-49`) |
 | `state` | Two-letter state code |
-| `milepost` | Integer mile marker number |
+| `milepost` | Integer mile marker number (statewide cumulative) |
+| `name` | Named highway if available (e.g. `"Pennsylvania Tpke"`, `"Lincoln Hwy"`) |
 | `display_name` | Ready-to-print string for Telegram/UI |
 | `distance_m` | Straight-line distance in metres from your input (raw, used for sorting) |
 | `distance_display` | Human-readable distance (`0.15 mi`, or km if `?units=km`) |
@@ -290,9 +295,9 @@ milestone.controller
 ```
 nearest-milestone-api/
 ├── data/
-│   └── milemarkers.db          # 307k mile markers, all US states (~24 MB)
+│   └── milemarkers.db          # 293k+ mile markers, all US states (~26 MB)
 ├── scripts/
-│   └── build-db.js             # One-time: NTAD NHS → SQLite generator
+│   └── build-db.js             # One-time: NTAD NHS → SQLite (chain-stitch algorithm)
 ├── src/
 │   ├── app.js                  # Express app, error handler
 │   ├── server.js               # HTTP listener
